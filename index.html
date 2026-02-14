@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Master Queue Cloud Ultra 2026</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        :root { --primary: #007AFF; --success: #34C759; --warning: #FFCC00; --danger: #FF3B30; --bg: #F2F2F7; --card: #FFFFFF; --text: #1C1C1E; }
+        body { font-family: -apple-system, sans-serif; background-color: var(--bg); margin: 0; padding: 10px; color: var(--text); }
+        .container { width: 100%; max-width: 500px; margin: 0 auto; }
+        .tabs { display: flex; background: #E5E5EA; padding: 2px; border-radius: 10px; margin-bottom: 15px; }
+        .tab { flex: 1; text-align: center; padding: 10px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+        .tab.active { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .card { background: var(--card); padding: 15px; border-radius: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .search-container { display: flex; gap: 8px; margin-bottom: 10px; }
+        .search-input { flex: 1; padding: 14px; font-size: 16px; border: 1px solid #D1D1D6; border-radius: 12px; outline: none; background: #F2F2F7; box-sizing: border-box; }
+        #result { margin-top: 10px; padding: 20px; border-radius: 12px; display: none; text-align: center; font-size: 16px; line-height: 1.5; }
+        .res-date { display: block; font-size: 22px; font-weight: 800; margin: 5px 0; }
+        .found { background: #E5F9E7; color: #1E6726; border: 1px solid #B7EBBA; }
+        .status-collecting { background: #FFF9E5; color: #856404; animation: pulse 1.5s infinite; border: 1px solid #FFEBAA; }
+        .not-found { background: #FFF0F0; color: #D70015; border: 1px solid #FFD5D5; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .row-collecting { background-color: #FFFBE6; }
+        .row-collecting td:first-child { border-left: 4px solid var(--warning); }
+        .btn { border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; padding: 10px; }
+        .btn-s { padding: 8px 10px; font-size: 11px; }
+        .btn-pay { background: var(--success); }
+        .btn-del { background: var(--danger); }
+        .btn-main { background: var(--primary); width: 100%; padding: 15px; font-size: 16px; margin-top: 10px; }
+        .month-header { background: #E5E5EA; padding: 10px; font-weight: bold; font-size: 14px; color: #3A3A3C; border-radius: 8px; margin-top: 15px; display: flex; justify-content: space-between; }
+        .month-count { background: var(--primary); color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+        textarea { width: 100%; height: 100px; padding: 10px; margin-top: 10px; border: 1px solid #D1D1D6; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+        .admin-lock { text-align: center; color: #AEAEB2; margin-top: 40px; font-size: 13px; text-decoration: underline; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th, td { padding: 10px 5px; border-bottom: 1px solid #F2F2F7; text-align: left; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="client-view">
+        <h2 style="text-align: center;">Master Queue Cloud</h2>
+        <div class="card">
+            <div class="search-container">
+                <input type="text" id="search-input" class="search-input" placeholder="Введите ФИО" onkeydown="if(event.key==='Enter') doSearch()">
+                <button class="btn btn-pay" onclick="doSearch()" style="padding:0 15px;">Поиск</button>
+                <button class="btn btn-del" onclick="clearSearch()" style="padding:0 15px;">✕</button>
+            </div>
+            <div id="result"></div>
+        </div>
+        <div class="admin-lock" onclick="login()">Вход для мастера</div>
+    </div>
+
+    <div id="admin-panel" style="display:none;">
+        <div class="tabs">
+            <div class="tab active" id="tab-active" onclick="switchTab('active')">Очередь</div>
+            <div class="tab" id="tab-paid" onclick="switchTab('paid')">Оплачено</div>
+        </div>
+        <div class="card">
+            <div style="overflow-x:auto;">
+                <table><thead id="table-head"></thead><tbody id="admin-body"></tbody></table>
+            </div>
+        </div>
+        <div id="import-section" class="card">
+            <strong>Массовый импорт</strong>
+            <textarea id="import-data" placeholder="Иванов Иван Иванович, 25.02.2026"></textarea>
+            <button class="btn btn-main" onclick="bulkImport()">Загрузить список</button>
+        </div>
+        <button class="btn btn-main" style="background:var(--danger);" onclick="logout()">Выйти</button>
+    </div>
+</div>
+
+<script>
+    const firebaseConfig = { databaseURL: "https://ochered-653b9-default-rtdb.firebaseio.com/" };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let queue = [];
+    let archive = [];
+    let currentTab = 'active';
+
+    db.ref('queue').on('value', snap => { 
+        const data = snap.val();
+        queue = data ? Object.keys(data).map(key => ({...data[key], id: key})) : [];
+        render(); 
+    });
+    db.ref('archive').on('value', snap => { 
+        const data = snap.val();
+        archive = data ? Object.keys(data).map(key => ({...data[key], id: key})) : []; 
+        render(); 
+    });
+
+    function login() { if (prompt("Пароль:") === "01") { document.getElementById('client-view').style.display = 'none'; document.getElementById('admin-panel').style.display = 'block'; } }
+    function logout() { document.getElementById('client-view').style.display = 'block'; document.getElementById('admin-panel').style.display = 'none'; }
+
+    function switchTab(t) {
+        currentTab = t;
+        document.getElementById('tab-active').classList.toggle('active', t === 'active');
+        document.getElementById('tab-paid').classList.toggle('active', t === 'paid');
+        document.getElementById('import-section').style.display = (t === 'active') ? 'block' : 'none';
+        render();
+    }
+
+    function render() {
+        const body = document.getElementById('admin-body');
+        const head = document.getElementById('table-head');
+        body.innerHTML = '';
+        
+        if (currentTab === 'active') {
+            head.innerHTML = '<tr><th>№</th><th>Дата</th><th>ФИО</th><th>Действие</th></tr>';
+            const sorted = [...queue].sort((a,b) => new Date(a.date) - new Date(b.date));
+            
+            sorted.forEach((item, i) => {
+                const isColl = item.isCollecting;
+                body.innerHTML += `<tr class="${isColl ? 'row-collecting' : ''}">
+                    <td>${i+1}</td><td>${fmt(item.date)}</td><td>${item.name}</td>
+                    <td>
+                        <button class="btn btn-s" 
+                            style="background:${isColl ? '#AEAEB2' : 'var(--warning)'}; color:black; ${isColl ? 'pointer-events:none; opacity:0.7;' : ''}" 
+                            onclick="setCollectOnly('${item.id}', '${item.name}')">
+                            ${isColl ? '✅ Сбор' : 'Сбор'}
+                        </button>
+                        <button class="btn btn-s btn-pay" onclick="payConfirm('${item.id}')">OK</button>
+                    </td></tr>`;
+            });
+        } else {
+            head.innerHTML = '<tr><th>№</th><th>Дата опл.</th><th>ФИО</th><th>Удалить</th></tr>';
+            const groups = {};
+            archive.forEach(item => {
+                const d = new Date(item.payDate || item.date);
+                const monthKey = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+                if (!groups[monthKey]) groups[monthKey] = [];
+                groups[monthKey].push(item);
+            });
+            const sortedMonths = Object.keys(groups).sort((a, b) => new Date(groups[b][0].payDate) - new Date(groups[a][0].payDate));
+            sortedMonths.forEach(month => {
+                body.innerHTML += `<tr><td colspan="4"><div class="month-header"><span>${month.toUpperCase()}</span><span class="month-count">${groups[month].length} чел.</span></div></td></tr>`;
+                groups[month].slice().reverse().forEach((item, i) => {
+                    body.innerHTML += `<tr><td>${groups[month].length - i}</td><td style="color:gray; font-size:11px;">${fmt(item.payDate)}</td><td>${item.name}</td><td><button class="btn btn-s btn-del" onclick="delArchive('${item.id}')">✕</button></td></tr>`;
+                });
+            });
+        }
+    }
+
+    function setCollectOnly(id, name) {
+        if (confirm(`Отметить "${name}" на сбор? Позиция в очереди не изменится. Отменить нельзя.`)) {
+            db.ref('queue').child(id).update({ isCollecting: true });
+        }
+    }
+
+    function payConfirm(id) {
+        const item = queue.find(it => it.id === id);
+        if (item && confirm(`Клиент "${item.name}" оплатил?`)) {
+            db.ref('archive').push({ name: item.name, payDate: new Date().toISOString() });
+            db.ref('queue').child(id).remove();
+        }
+    }
+
+    function bulkImport() {
+        const text = document.getElementById('import-data').value.trim();
+        if (!text) return;
+        const dateRegex = /(\d{1,2})[\.\/](\d{1,2})[\.\/](\d{4})/;
+        let added = 0; let skipped = 0;
+
+        text.split('\n').forEach(line => {
+            const m = line.match(dateRegex);
+            if (m) {
+                const isoDate = `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+                const name = line.replace(m[0], "").replace(/[,;]/g, "").trim();
+                const nameLower = name.toLowerCase();
+
+                // Проверка на дубликат (Имя + Дата)
+                if (queue.some(it => it.name.toLowerCase() === nameLower && it.date === isoDate)) {
+                    skipped++; return;
+                }
+
+                // Проверка в архиве
+                const isInArchive = archive.some(it => it.name.toLowerCase() === nameLower);
+                if (isInArchive && !confirm(`Клиент "${name}" уже в Оплаченных. Добавить новую запись?`)) {
+                    skipped++; return;
+                }
+
+                db.ref('queue').push({ name, date: isoDate, isCollecting: false });
+                added++;
+            }
+        });
+        alert(`Добавлено: ${added}. Пропущено: ${skipped}`);
+        document.getElementById('import-data').value = '';
+    }
+
+    function delArchive(id) { if(confirm("Удалить?")) db.ref('archive').child(id).remove(); }
+    function clearSearch() { document.getElementById('search-input').value = ''; document.getElementById('result').style.display = 'none'; }
+
+    function doSearch() {
+        const q = document.getElementById('search-input').value.toLowerCase().trim();
+        const res = document.getElementById('result');
+        if (q.split(/\s+/).filter(w => w.length > 0).length < 3) {
+            res.style.display = 'block'; res.className = 'not-found';
+            res.innerHTML = 'Введите полное ФИО.'; return;
+        }
+        res.style.display = 'block';
+        const sorted = [...queue].sort((a,b) => new Date(a.date) - new Date(b.date));
+        const idx = sorted.findIndex(item => item.name.toLowerCase().includes(q) || q.includes(item.name.toLowerCase()));
+        
+        if (idx !== -1) {
+            const found = sorted[idx];
+            res.className = found.isCollecting ? 'status-collecting' : 'found';
+            res.innerHTML = `<b>${found.name}</b><br>Запись на:<br><span class="res-date">${fmt(found.date)}</span>${found.isCollecting ? '<b>🔥 ВЫ НА СБОРЕ! 🔥</b><br>Место: <b>' + (idx + 1) + '</b>' : 'Место в очереди: <b>' + (idx + 1) + '</b>'}`;
+        } else {
+            res.className = 'not-found'; res.innerHTML = '❌ Клиент не найден.';
+        }
+    }
+
+    function fmt(d) { 
+        const o = new Date(d); if (isNaN(o)) return d;
+        return o.toLocaleDateString('ru-RU');
+    }
+</script>
+</body>
+</html>
