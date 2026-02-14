@@ -207,7 +207,7 @@
         if (idx !== -1) {
             const found = sorted[idx];
             res.className = found.isCollecting ? 'status-collecting' : 'found';
-            res.innerHTML = `<b>${found.name}</b><br>Запись на:<br><span class="res-date">${fmt(found.date)}</span>${found.isCollecting ? '<b>🔥 ВЫ НА СБОРЕ! 🔥</b><br>Место: <b>' + (idx + 1) + '</b>' : 'Место в очереди: <b>' + (idx + 1) + '</b>'}`;
+            res.innerHTML = `<b>${found.name}</b><br>дата подачи заявки:<br><span class="res-date">${fmt(found.date)}</span>${found.isCollecting ? '<b>ВЫ НА СБОРЕ!</b><br>очеред: <b>' + (idx + 1) + '</b>' : 'Место в очереди: <b>' + (idx + 1) + '</b>'}`;
         } else {
             res.className = 'not-found'; res.innerHTML = '❌ Клиент не найден.';
         }
