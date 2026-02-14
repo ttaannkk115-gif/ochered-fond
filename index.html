@@ -35,6 +35,7 @@
         .admin-lock { text-align: center; color: #AEAEB2; margin-top: 40px; font-size: 13px; text-decoration: underline; cursor: pointer; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
         th, td { padding: 10px 5px; border-bottom: 1px solid #F2F2F7; text-align: left; }
+        .admin-search { margin-bottom: 10px; width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #D1D1D6; box-sizing: border-box; }
     </style>
 </head>
 <body>
@@ -58,6 +59,9 @@
             <div class="tab active" id="tab-active" onclick="switchTab('active')">Очередь</div>
             <div class="tab" id="tab-paid" onclick="switchTab('paid')">Оплачено</div>
         </div>
+        
+        <input type="text" id="admin-search" class="admin-search" placeholder="Быстрый поиск по списку..." oninput="render()">
+
         <div class="card">
             <div style="overflow-x:auto;">
                 <table><thead id="table-head"></thead><tbody id="admin-body"></tbody></table>
@@ -100,35 +104,35 @@
         document.getElementById('tab-active').classList.toggle('active', t === 'active');
         document.getElementById('tab-paid').classList.toggle('active', t === 'paid');
         document.getElementById('import-section').style.display = (t === 'active') ? 'block' : 'none';
+        document.getElementById('admin-search').value = '';
         render();
     }
 
     function render() {
         const body = document.getElementById('admin-body');
         const head = document.getElementById('table-head');
+        const filter = document.getElementById('admin-search').value.toLowerCase();
         body.innerHTML = '';
         
         if (currentTab === 'active') {
             head.innerHTML = '<tr><th>№</th><th>Дата</th><th>ФИО</th><th>Действие</th></tr>';
             const sorted = [...queue].sort((a,b) => new Date(a.date) - new Date(b.date));
-            
             sorted.forEach((item, i) => {
-                const isColl = item.isCollecting;
-                body.innerHTML += `<tr class="${isColl ? 'row-collecting' : ''}">
-                    <td>${i+1}</td><td>${fmt(item.date)}</td><td>${item.name}</td>
-                    <td>
-                        <button class="btn btn-s" 
-                            style="background:${isColl ? '#AEAEB2' : 'var(--warning)'}; color:black; ${isColl ? 'pointer-events:none; opacity:0.7;' : ''}" 
-                            onclick="setCollectOnly('${item.id}', '${item.name}')">
-                            ${isColl ? '✅ Сбор' : 'Сбор'}
-                        </button>
-                        <button class="btn btn-s btn-pay" onclick="payConfirm('${item.id}')">OK</button>
-                    </td></tr>`;
+                if (item.name.toLowerCase().includes(filter)) {
+                    const isColl = item.isCollecting;
+                    body.innerHTML += `<tr class="${isColl ? 'row-collecting' : ''}">
+                        <td>${i+1}</td><td>${fmt(item.date)}</td><td>${item.name}</td>
+                        <td>
+                            <button class="btn btn-s" style="background:${isColl ? '#AEAEB2' : 'var(--warning)'}; color:black;" onclick="setCollectOnly('${item.id}', '${item.name}')">${isColl ? '✅ Сбор' : 'Сбор'}</button>
+                            <button class="btn btn-s btn-pay" onclick="payConfirm('${item.id}')">OK</button>
+                        </td></tr>`;
+                }
             });
         } else {
             head.innerHTML = '<tr><th>№</th><th>Дата опл.</th><th>ФИО</th><th>Удалить</th></tr>';
+            const filteredArchive = archive.filter(item => item.name.toLowerCase().includes(filter));
             const groups = {};
-            archive.forEach(item => {
+            filteredArchive.forEach(item => {
                 const d = new Date(item.payDate || item.date);
                 const monthKey = d.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
                 if (!groups[monthKey]) groups[monthKey] = [];
@@ -145,7 +149,7 @@
     }
 
     function setCollectOnly(id, name) {
-        if (confirm(`Отметить "${name}" на сбор? Позиция в очереди не изменится. Отменить нельзя.`)) {
+        if (confirm(`Отметить "${name}" на сбор?`)) {
             db.ref('queue').child(id).update({ isCollecting: true });
         }
     }
@@ -165,28 +169,35 @@
         let added = 0; let skipped = 0;
 
         text.split('\n').forEach(line => {
-            const m = line.match(dateRegex);
+            const cleanLine = line.trim();
+            const m = cleanLine.match(dateRegex);
+            
             if (m) {
                 const isoDate = `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-                const name = line.replace(m[0], "").replace(/[,;]/g, "").trim();
-                const nameLower = name.toLowerCase();
+                const name = cleanLine.replace(m[0], "").replace(/[,;]/g, "").trim();
+                
+                if (name.length < 3) { skipped++; return; }
 
-                // Проверка на дубликат (Имя + Дата)
-                if (queue.some(it => it.name.toLowerCase() === nameLower && it.date === isoDate)) {
+                // 1. Проверка на дубликат в текущей очереди
+                if (queue.some(it => it.name.toLowerCase() === name.toLowerCase() && it.date === isoDate)) {
                     skipped++; return;
                 }
 
-                // Проверка в архиве
-                const isInArchive = archive.some(it => it.name.toLowerCase() === nameLower);
-                if (isInArchive && !confirm(`Клиент "${name}" уже в Оплаченных. Добавить новую запись?`)) {
-                    skipped++; return;
+                // 2. ВЕРНУЛ ФУНКЦИЮ: Проверка в разделе ОПЛАЧЕНО
+                const isInArchive = archive.some(it => it.name.toLowerCase() === name.toLowerCase());
+                if (isInArchive) {
+                    if (!confirm(`Клиент "${name}" уже есть в разделе Оплаченные. Всё равно добавить новую запись в очередь?`)) {
+                        skipped++; return;
+                    }
                 }
 
                 db.ref('queue').push({ name, date: isoDate, isCollecting: false });
                 added++;
+            } else {
+                skipped++;
             }
         });
-        alert(`Добавлено: ${added}. Пропущено: ${skipped}`);
+        alert(`Добавлено: ${added}. Пропущено (мусор/дубли): ${skipped}`);
         document.getElementById('import-data').value = '';
     }
 
