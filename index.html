@@ -42,7 +42,7 @@
 
 <div class="container">
     <div id="client-view">
-        <h2 style="text-align: center;">Master Queue Cloud</h2>
+    <h2 style="text-align: center; user-select: none;" onclick="masterAccess()">Узнать свой очередь</h2>
         <div class="card">
             <div class="search-container">
                 <input type="text" id="search-input" class="search-input" placeholder="Введите ФИО" onkeydown="if(event.key==='Enter') doSearch()">
@@ -51,7 +51,7 @@
             </div>
             <div id="result"></div>
         </div>
-        <div class="admin-lock" onclick="login()">Вход для мастера</div>
+        <div class="admin-lock" onclick="login()"></div>
     </div>
 
     <div id="admin-panel" style="display:none;">
@@ -95,6 +95,28 @@
         archive = data ? Object.keys(data).map(key => ({...data[key], id: key})) : []; 
         render(); 
     });
+     // 1. Добавьте эти переменные в начало списка переменных
+    let clickCount = 0;
+    let clickTimer;
+
+    // ... ваш существующий код (Firebase config и т.д.) ...
+
+    // 2. Добавьте саму функцию управления доступом
+    function masterAccess() {
+        clickCount++;
+        if (clickCount === 3) {
+            clickCount = 0;
+            let pass = prompt("Пароль:");
+            if (pass === "0303") {
+                document.getElementById('client-view').style.display = 'none';
+                document.getElementById('admin-panel').style.display = 'block';
+            }
+        }
+        clearTimeout(clickTimer);
+        clickTimer = setTimeout(() => { clickCount = 0; }, 1000);
+    }
+    
+    // ... остальные ваши функции (render, bulkImport и т.д.) ...
 
     function login() { if (prompt("Пароль:") === "0303") { document.getElementById('client-view').style.display = 'none'; document.getElementById('admin-panel').style.display = 'block'; } }
     function logout() { document.getElementById('client-view').style.display = 'block'; document.getElementById('admin-panel').style.display = 'none'; }
